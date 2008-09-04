@@ -39,6 +39,7 @@ module AASM
       sm = AASM::StateMachine[self]
       sm.create_state(name, options)
       sm.initial_state = name unless sm.initial_state
+      add_string_methods(options[:strings].keys) if options.has_key?(:strings)
 
       define_method("#{name.to_s}?") do
         aasm_current_state == name
@@ -72,6 +73,17 @@ module AASM
     def aasm_states_for_select
       AASM::StateMachine[self].states.map { |state| state.for_select }
     end
+
+    PREFIX_FOR_STRING_METHODS = "state_string_for_"
+    def add_string_methods(method_identifiers)
+      method_identifiers.each do |method_id|
+        method_name = PREFIX_FOR_STRING_METHODS + method_id.to_s
+        next if method_defined?(method_name)
+        define_method(method_name) do
+          aasm_deep_state_change_strings_for(method_id).andand.last
+        end
+      end
+    end
     
   end
 
@@ -86,6 +98,18 @@ module AASM
     self.class.aasm_initial_state
   end
 
+  def aasm_active_state_machine_object
+    unless association = SupportingClasses::State.extract_delegate_state_association( aasm_current_state )
+      return self
+    end
+    if ! self.respond_to?(association)
+      err_msg = 'state machine is delegating to an association that the object does not know about.' +
+        "#{self.class.name}[#{id}].#{association} does not exist."
+      raise StandardError, err_msg
+    end
+    self.send(association).aasm_active_state_machine_object
+  end
+
   def aasm_events_for_current_state
     aasm_events_for_state(aasm_current_state)
   end
@@ -94,9 +118,17 @@ module AASM
     events = self.class.aasm_events.values.select {|event| event.transitions_from_state?(state) }
     events.map {|event| event.name}
   end
-
+  
+  def aasm_deep_state_change_strings_for(key)
+    aasm_deep_state_changes.map do |state_change| 
+      active_sm = state_change.state_owner
+      active_sm.send(:aasm_state_object_for_state, state_change.state).description_strings[key].andand.interpolate(binding)
+    end.compact
+  end
+  
   private
   def aasm_current_state_with_persistence=(state)
+    self.aasm_state_changes.create!(:state => state) if aasm_current_state != state
     if self.respond_to?(:aasm_write_state) || self.private_methods.include?('aasm_write_state')
       aasm_write_state(state)
     end

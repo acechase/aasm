@@ -23,7 +23,11 @@ module AASM
     end
 
     def create_state(name, options)
-      @states << AASM::SupportingClasses::State.new(name, options) unless @states.include?(name)
+      if @states.include?(name)
+        @states.find{|s| s == name}.options.merge!(options)
+      else
+        @states << AASM::SupportingClasses::State.new(name, options) 
+      end
     end
   end
 end

@@ -1,6 +1,8 @@
 module AASM
   module Persistence
     module ActiveRecordPersistence
+      class StateChangeTableMissing < RuntimeError ; end
+
       # This method:
       #
       # * extends the model with ClassMethods
@@ -48,8 +50,10 @@ module AASM
             end
           end
         end
-        
+
+        base.send(:add_state_change_association)
         base.before_validation_on_create :aasm_ensure_initial_state
+        base.after_create :aasm_create_initial_state_change
       end
 
       module ClassMethods
@@ -108,10 +112,36 @@ module AASM
         end
 
         protected
+
         def with_state_scope(state)
           with_scope :find => {:conditions => ["#{table_name}.#{aasm_column} = ?", state.to_s]} do
             yield if block_given?
           end
+        end
+
+        private
+
+        def add_state_change_association
+          association_name = self.name.tableize.singularize
+          state_changes_table_name = name.underscore + '_state_changes' # TODO pull this out
+          change_class = state_changes_table_name.classify
+          klass = create_class( change_class, ActiveRecord::Base ) do
+            belongs_to association_name, :alias => :state_owner
+            def state=(state_name) ; write_attribute(:aasm_state, state_name.to_s) end
+            def state              ; read_attribute(:aasm_state).to_sym            end
+          end
+
+          if !klass.table_exists?
+            raise StateChangeTableMissing.new("#{klass.table_name} not found")
+          end
+
+          has_many change_class.tableize, :alias => :aasm_state_changes
+        end
+
+        def create_class(class_name, superclass, &block)
+          klass = Class.new superclass, &block
+          Object.const_set class_name, klass
+          klass
         end
       end
 
@@ -135,6 +165,19 @@ module AASM
           @current_state = aasm_read_state
         end
 
+        # returns a list of state changes, as symbols. Where the list contains a delegate_to_*
+        # state change the delegated objects deep_state_changes are also added to the list.
+        def aasm_deep_state_changes
+          self.aasm_state_changes.collect do |s|
+            if association_name = SupportingClasses::State.extract_delegate_state_association(s.state)
+              next unless association = self.send(association_name)
+              association.aasm_deep_state_changes.unshift(s)
+            else
+              s
+            end
+          end.flatten
+        end
+
         private
         
         # Ensures that if the aasm_state column is nil and the record is new
@@ -154,6 +197,10 @@ module AASM
         #
         def aasm_ensure_initial_state
           send("#{self.class.aasm_column}=", self.aasm_current_state.to_s)
+        end
+
+        def aasm_create_initial_state_change
+          aasm_state_changes.create!(:state => self.aasm_current_state.to_s)
         end
 
       end
