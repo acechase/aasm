@@ -53,7 +53,7 @@ module AASM
 
         base.send(:add_state_change_association)
         base.before_validation_on_create :aasm_ensure_initial_state
-        base.after_create :aasm_create_initial_state_change
+        base.after_create :aasm_fire_initial_state, :aasm_create_initial_state_change
       end
 
       module ClassMethods
@@ -124,18 +124,18 @@ module AASM
         def add_state_change_association
           association_name = self.name.tableize.singularize
           state_changes_table_name = name.underscore + '_state_changes' # TODO pull this out
-          change_class = state_changes_table_name.classify
-          klass = create_class( change_class, ActiveRecord::Base ) do
+          class_name = state_changes_table_name.classify
+          klass = create_class( class_name, ActiveRecord::Base ) do
             belongs_to association_name, :alias => :state_owner
             def state=(state_name) ; write_attribute(:aasm_state, state_name.to_s) end
             def state              ; read_attribute(:aasm_state).to_sym            end
           end
 
           if !klass.table_exists?
-            raise StateChangeTableMissing.new("#{klass.table_name} not found")
+            raise StateChangeTableMissing.new("#{klass.table_name} not found -- Required when including AASM")
           end
 
-          has_many change_class.tableize, :alias => :aasm_state_changes
+          has_many :aasm_state_changes, :class_name => class_name
         end
 
         def create_class(class_name, superclass, &block)
@@ -203,6 +203,9 @@ module AASM
           aasm_state_changes.create!(:state => self.aasm_current_state.to_s)
         end
 
+        def aasm_fire_initial_state
+          aasm_state_object_for_state(aasm_current_state).call_action(:enter, self)
+        end
       end
 
       module WriteStateWithoutPersistence
@@ -235,6 +238,7 @@ module AASM
         #
         # NOTE: intended to be called from an event
         def aasm_write_state(state)
+          aasm_state_changes.create!(:state => state) if aasm_current_state != state
           update_attribute(self.class.aasm_column, state.to_s)
         end
       end

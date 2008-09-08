@@ -103,9 +103,9 @@ module AASM
       return self
     end
     if ! self.respond_to?(association)
-      err_msg = 'state machine is delegating to an association that the object does not know about.' +
-        "#{self.class.name}[#{id}].#{association} does not exist."
-      raise StandardError, err_msg
+      raise(StandardError, 
+            'state machine is delegating to an association that this object does not know about.\n' +
+            "#{self.class.name}[#{id}].#{association} does not exist.")
     end
     self.send(association).aasm_active_state_machine_object
   end
@@ -128,7 +128,6 @@ module AASM
   
   private
   def aasm_current_state_with_persistence=(state)
-    self.aasm_state_changes.create!(:state => state) if aasm_current_state != state
     if self.respond_to?(:aasm_write_state) || self.private_methods.include?('aasm_write_state')
       aasm_write_state(state)
     end
@@ -146,13 +145,23 @@ module AASM
     self.class.aasm_states.find {|s| s == name}
   end
 
+  # fires the event identified by 'name'. If the state being entered is the same as the state being
+  # exited some callbacks will not fire. Callback firing sequence is as follows:
+  # 
+  # current_state.exit        unless loopback
+  # transition.on_transition
+  # new_state.enter           unless loopback
+  # self.aasm_event_fired
+  # event.success             unless loopback
+  # 
   def aasm_fire_event(name, persist, *args)
-    aasm_state_object_for_state(aasm_current_state).call_action(:exit, self)
-
-    new_state = self.class.aasm_events[name].fire(self, *args)
+    event = self.class.aasm_events[name]
+    is_loopback = event.get_next_state(self, *args) == aasm_current_state
+    aasm_state_object_for_state(aasm_current_state).call_action(:exit, self) unless is_loopback
+    new_state = event.fire(self, *args)   # N.B. still called when is_loopback == true
     
     unless new_state.nil?
-      aasm_state_object_for_state(new_state).call_action(:enter, self)
+      aasm_state_object_for_state(new_state).call_action(:enter, self) unless is_loopback
       
       if self.respond_to?(:aasm_event_fired)
         self.aasm_event_fired(self.aasm_current_state, new_state)
@@ -160,7 +169,7 @@ module AASM
 
       if persist
         self.aasm_current_state_with_persistence = new_state
-        self.send(self.class.aasm_events[name].success) if self.class.aasm_events[name].success
+        self.send(event.success) if event.success unless is_loopback
       else
         self.aasm_current_state = new_state
       end

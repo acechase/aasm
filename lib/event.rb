@@ -11,7 +11,7 @@ module AASM
         @transitions = []
         instance_eval(&block) if block
       end
-
+      
       def fire(obj, to_state=nil, *args)
         transitions = @transitions.select { |t| t.from == obj.aasm_current_state }
         raise AASM::InvalidTransition, "Event '#{name}' cannot transition from '#{obj.aasm_current_state}'" if transitions.size == 0
@@ -22,6 +22,22 @@ module AASM
           if transition.perform(obj)
             next_state = to_state || Array(transition.to).first
             transition.execute(obj, *args)
+            break
+          end
+        end
+        next_state
+      end
+      
+      # Finds the next state using the same approach as in #fire, but does not call the transitions execute callback
+      def get_next_state(obj, to_state = nil, *args)
+        transitions = @transitions.select { |t| t.from == obj.aasm_current_state }
+        return nil if transitions.size == 0
+
+        next_state = nil
+        transitions.each do |transition|
+          next if to_state and !Array(transition.to).include?(to_state)
+          if transition.perform(obj)
+            next_state = to_state || Array(transition.to).first
             break
           end
         end
