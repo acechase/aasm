@@ -49,9 +49,10 @@ module AASM
     def aasm_event(name, options = {}, &block)
       sm = AASM::StateMachine[self]
       
-      unless sm.events.has_key?(name)
-        sm.events[name] = AASM::SupportingClasses::Event.new(name, options, &block)
+      if sm.events.has_key?(name)
+        sm.events.delete(name)
       end
+      sm.events[name] = AASM::SupportingClasses::Event.new(name, options, &block)
 
       define_method("#{name.to_s}!") do |*args|
         aasm_fire_event(name, true, *args)
@@ -112,6 +113,18 @@ module AASM
 
   def aasm_events_for_current_state
     aasm_events_for_state(aasm_current_state)
+  end
+
+  def aasm_deep_events_for_current_state
+    delegated_association = SupportingClasses::State.extract_delegate_state_association( aasm_current_state )
+    
+    if delegated_association  # currently delegating
+      send(delegated_association).aasm_deep_events_for_current_state.map do |event_name|
+        delegated_association.to_s << ':' << event_name.to_s
+      end
+    else
+      aasm_events_for_current_state
+    end
   end
 
   def aasm_events_for_state(state)
