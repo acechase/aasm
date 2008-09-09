@@ -126,9 +126,11 @@ module AASM
           state_changes_table_name = name.underscore + '_state_changes' # TODO pull this out
           class_name = state_changes_table_name.classify
           klass = create_class( class_name, ActiveRecord::Base ) do
-            belongs_to association_name, :alias => :state_owner
-            def state=(state_name) ; write_attribute(:aasm_state, state_name.to_s) end
-            def state              ; read_attribute(:aasm_state).to_sym            end
+            belongs_to association_name
+            alias_method :state_owner, association_name
+
+            def state=(state_name) ; write_attribute(:state, state_name.to_s) end
+            def state              ; read_attribute(:state).to_sym            end
           end
 
           if !klass.table_exists?
@@ -238,7 +240,9 @@ module AASM
         #
         # NOTE: intended to be called from an event
         def aasm_write_state(state)
-          aasm_state_changes.create!(:state => state) if aasm_current_state != state
+          # TODO should a state change be created regardless of the aasm_current_state?
+          raise if state == nil
+          obj = aasm_state_changes.create!(:state => state) if aasm_current_state != state
           update_attribute(self.class.aasm_column, state.to_s)
         end
       end

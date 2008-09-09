@@ -27,6 +27,16 @@ module AASM
         end
         next_state
       end
+
+      def call_success(record)
+        return unless @success
+        case @success
+        when Symbol, String
+          record.send(@success)
+        when Proc
+          @success.call(record)
+        end
+      end
       
       # Finds the next state using the same approach as in #fire, but does not call the transitions execute callback
       def get_next_state(obj, to_state = nil, *args)

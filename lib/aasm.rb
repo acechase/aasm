@@ -169,7 +169,7 @@ module AASM
 
       if persist
         self.aasm_current_state_with_persistence = new_state
-        self.send(event.success) if event.success unless is_loopback
+        event.call_success(self) unless is_loopback
       else
         self.aasm_current_state = new_state
       end
