@@ -138,6 +138,21 @@ module AASM
       active_sm.send(:aasm_state_object_for_state, state_change.state).description_strings[key].andand.interpolate(binding)
     end.compact
   end
+
+  def method_missing(method_id, *arguments)
+    if match = /^can_([_a-zA-Z]\w*)\?$/.match(method_id.to_s)
+      event = match.captures.first.to_sym
+      super unless self.class.aasm_events[event]
+      self.class.class_eval %{
+        def #{method_id}
+          !aasm_events_for_current_state.include?(:#{event})
+        end
+      }, __FILE__, __LINE__
+      send(method_id)
+    else
+      super
+    end
+  end
   
   private
   def aasm_current_state_with_persistence=(state)
