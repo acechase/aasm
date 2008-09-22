@@ -145,7 +145,7 @@ module AASM
       super unless self.class.aasm_events[event]
       self.class.class_eval %{
         def #{method_id}
-          !aasm_events_for_current_state.include?(:#{event})
+          aasm_events_for_current_state.include?(:#{event})
         end
       }, __FILE__, __LINE__
       send(method_id)
